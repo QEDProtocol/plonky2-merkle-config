@@ -11,6 +11,7 @@ use crate::hash::hashing::PlonkyPermutation;
 use crate::hash::merkle_tree::MerkleTree;
 use crate::iop::challenger::Challenger;
 use crate::plonk::config::GenericConfig;
+use crate::plonk::config::GenericConfigMerkleHasher;
 use crate::plonk::plonk_common::reduce_with_powers;
 use crate::timed;
 use crate::util::reverse_index_bits_in_place;
@@ -84,7 +85,7 @@ fn fri_committed_trees<F: RichField + Extendable<D>, C: GenericConfig<D, F = F>,
             .par_chunks(arity)
             .map(|chunk: &[F::Extension]| flatten(chunk))
             .collect();
-        let tree = MerkleTree::<F, C::Hasher>::new(chunked_values, fri_params.config.cap_height);
+        let tree = C::MerkleHasher::new_merkle_tree(chunked_values, fri_params.config.cap_height);
 
         challenger.observe_cap(&tree.cap);
         trees.push(tree);

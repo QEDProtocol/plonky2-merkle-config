@@ -1,6 +1,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use core::marker::PhantomData;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -11,6 +12,7 @@ use crate::field::goldilocks_field::GoldilocksField;
 use crate::hash::hash_types::{HashOut, RichField};
 use crate::hash::hashing::PlonkyPermutation;
 use crate::hash::keccak::KeccakHash;
+use crate::hash::merkle_tree::MerkleTree;
 use crate::hash::poseidon::PoseidonHash;
 use crate::iop::target::{BoolTarget, Target};
 use crate::plonk::circuit_builder::CircuitBuilder;
@@ -43,7 +45,7 @@ pub trait Hasher<F: RichField>: Sized + Copy + Debug + Eq + PartialEq {
     fn hash_pad(input: &[F]) -> Self::Hash {
         let mut padded_input = input.to_vec();
         padded_input.push(F::ONE);
-        while (padded_input.len() + 1) % Self::Permutation::RATE != 0 {
+        while (padded_input.len() + 1) % Self::Permutation::WIDTH != 0 {
             padded_input.push(F::ZERO);
         }
         padded_input.push(F::ONE);
@@ -83,6 +85,20 @@ pub trait AlgebraicHasher<F: RichField>: Hasher<F, Hash = HashOut<F>> {
         F: RichField + Extendable<D>;
 }
 
+pub trait GenericConfigMerkleHasher<F: RichField, H: Hasher<F>>:
+    Debug + Clone + Sized + Eq + PartialEq {
+    fn new_merkle_tree(leaves: Vec<Vec<F>>, cap_height: usize) -> MerkleTree<F, H>;
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct GenericConfigStandardMerkleHasher<F: RichField, H: Hasher<F>>(PhantomData<(F,H)>);
+
+impl<F: RichField, H: Hasher<F>> GenericConfigMerkleHasher<F,H> for GenericConfigStandardMerkleHasher<F, H> {
+    fn new_merkle_tree(leaves: Vec<Vec<F>>, cap_height: usize) -> MerkleTree<F, H> {
+        MerkleTree::new(leaves, cap_height)
+    } 
+}
+
 /// Generic configuration trait.
 pub trait GenericConfig<const D: usize>:
     Debug + Clone + Sync + Sized + Send + Eq + PartialEq
@@ -95,6 +111,8 @@ pub trait GenericConfig<const D: usize>:
     type Hasher: Hasher<Self::F>;
     /// Algebraic hash function used for the challenger and hashing public inputs.
     type InnerHasher: AlgebraicHasher<Self::F>;
+    /// Merkle Hasher which can use Self::Hasher or a Hardware Accelerated Alternative
+    type MerkleHasher: GenericConfigMerkleHasher<Self::F, Self::Hasher>;
 }
 
 /// Configuration using Poseidon over the Goldilocks field.
@@ -105,6 +123,7 @@ impl GenericConfig<2> for PoseidonGoldilocksConfig {
     type FE = QuadraticExtension<Self::F>;
     type Hasher = PoseidonHash;
     type InnerHasher = PoseidonHash;
+    type MerkleHasher = GenericConfigStandardMerkleHasher<Self::F, Self::Hasher>;
 }
 
 /// Configuration using truncated Keccak over the Goldilocks field.
@@ -115,4 +134,5 @@ impl GenericConfig<2> for KeccakGoldilocksConfig {
     type FE = QuadraticExtension<Self::F>;
     type Hasher = KeccakHash<25>;
     type InnerHasher = PoseidonHash;
+    type MerkleHasher = GenericConfigStandardMerkleHasher<Self::F, Self::Hasher>;
 }
